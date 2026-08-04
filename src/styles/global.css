@@ -1,0 +1,163 @@
+html {
+  background-color: #f1f5f9;
+  font-family: sans-serif;
+}
+
+body {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 80ch;
+  padding: 1rem;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 1rem 0;
+  font-size: 2.5rem;
+}
+html {
+  background-color: #f1f5f9;
+  font-family: sans-serif;
+}
+
+body {
+  margin: 0 auto;
+  width: 100%;
+  max-width: 80ch;
+  padding: 1rem;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+h1 {
+  margin: 1rem 0;
+  font-size: 2.5rem;
+}
+
+/* nav styles */
+
+.menu {
+  background-color: #0d0950;
+  border: none;
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: bold;
+  padding: 5px 10px;
+}
+
+.nav-links {
+  width: 100%;
+  display: none;
+  margin: 0;
+}
+
+.nav-links a {
+  display: block;
+  text-align: center;
+  padding: 10px 0;
+  text-decoration: none;
+  font-size: 1.2rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: #0d0950;
+}
+
+.nav-links a:hover,
+.nav-links a:focus {
+  background-color: #ff9776;
+}
+
+:has(.menu[aria-expanded="true"]) .nav-links {
+  display: unset;
+}
+
+@media screen and (min-width: 636px) {
+  .nav-links {
+    margin-left: 5em;
+    display: block;
+    position: static;
+    width: auto;
+    background: none;
+  }
+
+  .nav-links a {
+    display: inline-block;
+    padding: 15px 20px;
+  }
+
+  .menu {
+    display: none;
+  }
+}
+
+/* Responsive container wrapper */
+.table-responsive-wrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
+/* Base table styles */
+.styled-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #d1d5db; /* gray-300 */
+  text-align: center;
+  font-size: 0.875rem; /* text-sm */
+}
+
+/* Table header styles */
+.styled-table thead {
+  background-color: #f3f4f6; /* gray-100 */
+  border-bottom: 1px solid #d1d5db;
+}
+
+.styled-table th {
+  border: 1px solid #d1d5db;
+  padding: 0.5rem 1rem; /* py-2 px-4 */
+  font-weight: 600; /* font-semibold */
+  color: #374151; /* gray-700 */
+}
+
+/* Table body styles */
+.styled-table tbody tr {
+  border-bottom: 1px solid #e5e7eb; /* gray-200 */
+}
+
+.styled-table tbody tr:hover {
+  background-color: #f9fafb; /* hover:bg-gray-50 */
+}
+
+.styled-table td {
+  border: 1px solid #d1d5db;
+  padding: 0.5rem; /* p-2 */
+}
+
+html.dark {
+  background-color: #0d0950;
+  color: #fff;
+}
+
+.dark .menu {
+  background-color: #fff;
+  color: #000;
+}
+
+.dark .nav-links a:hover,
+.dark .nav-links a:focus {
+  color: #0d0950;
+}
+
+.dark .nav-links a {
+  color: #fff;
+}
+
+.dark a {
+  color: #ff9776;
+}

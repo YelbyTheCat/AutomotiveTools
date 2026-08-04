@@ -1,0 +1,84 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+const pageTitle = "Pick Quote Reader";
+---
+
+<BaseLayout pageTitle={pageTitle}>
+  <form id="upload-form" class="mb-6">
+    <input type="file" id="pdf-file" accept=".pdf" class="mb-2 block" />
+    <!-- <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded"
+      >Upload & Parse</button -->
+    <!-- > -->
+  </form>
+
+  <div id="result-container"></div>
+
+  <script>
+import { extractQuoteFromPDF } from "../scripts/tableExtraction";
+
+    const form = document.getElementById("upload-form");
+    form?.addEventListener("change", async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById("pdf-file") as HTMLInputElement;
+      if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+
+      const formData = new FormData();
+      formData.append("pdf", fileInput.files[0]);
+
+      try {
+        const pdfTables = await extractQuoteFromPDF(formData);
+        renderTable(pdfTables);
+      } catch (err) {
+        console.error("Parsing failed:", err);
+        alert("An error occurred while parsing the PDF.");
+      }
+    });
+
+    const renderTable = (rows: any[]) => {
+      const container = document.getElementById("result-container");
+      if (!container) return;
+
+      let html =
+        '<div class="table-responsive-wrapper"><table class="styled-table">';
+      const columnNames = [
+        "ShipQty",
+        "BOQty",
+        "PartNumber",
+        "PartDescription",
+        "Bin",
+        "List",
+        "Net",
+        "Amount",
+      ];
+      const columnNameHeaders = [
+        "#",
+        "Ship Qty",
+        "BO Qty",
+        "Part Number",
+        "Part Description",
+        "Bin",
+        "List",
+        "Net",
+        "Amount",
+      ];
+
+      html += "<thead><tr>";
+      columnNameHeaders.forEach((name) => {
+        html += `<th>${name}</th>`;
+      });
+      html += "</tr></thead><tbody>";
+
+      rows.forEach((row, idx) => {
+        html += "<tr>";
+        html += `<td>${idx + 1}</td>`;
+        columnNames.forEach((cell) => {
+          html += `<td>${row[cell] !== undefined ? row[cell] : ""}</td>`;
+        });
+        html += "</tr>";
+      });
+
+      html += "</tbody></table></div>";
+      container.innerHTML = html;
+    };
+  </script>
+</BaseLayout>
