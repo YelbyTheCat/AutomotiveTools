@@ -1,4 +1,5 @@
 ---
+import Toast from "../components/Toast.astro";
 import BaseLayout from "../layouts/BaseLayout.astro";
 const pageTitle = "Pick Quote Reader";
 ---
@@ -6,15 +7,17 @@ const pageTitle = "Pick Quote Reader";
 <BaseLayout pageTitle={pageTitle}>
   <form id="upload-form" class="mb-6">
     <input type="file" id="pdf-file" accept=".pdf" class="mb-2 block" />
-    <!-- <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded"
-      >Upload & Parse</button -->
-    <!-- > -->
   </form>
 
   <div id="result-container"></div>
 
+  <!-- <Toast text="Copied to clipboard!"/> -->
+	 <div id="toast">
+    Copied to clipboard!
+  </div>
+
   <script>
-import { extractQuoteFromPDF } from "../scripts/tableExtraction";
+		import { extractQuoteFromPDF } from "../scripts/tableExtraction";
 
     const form = document.getElementById("upload-form");
     form?.addEventListener("change", async (e) => {
@@ -33,6 +36,22 @@ import { extractQuoteFromPDF } from "../scripts/tableExtraction";
         alert("An error occurred while parsing the PDF.");
       }
     });
+
+		const showToast = (message = "Coppied to clipboard!") => {
+			const toast = document.getElementById("toast");
+			if (!toast) return;
+
+			toast.textContent = message;
+			toast.classList.add("show");
+
+			if ((window as any).toastTimeout) {
+				clearTimeout((window as any).toastTimeout);
+			}
+
+			(window as any).toastTimeout = setTimeout(() => {
+				toast.classList.remove("show");
+			}, 2000);
+		}
 
     const renderTable = (rows: any[]) => {
       const container = document.getElementById("result-container");
@@ -72,13 +91,32 @@ import { extractQuoteFromPDF } from "../scripts/tableExtraction";
         html += "<tr>";
         html += `<td>${idx + 1}</td>`;
         columnNames.forEach((cell) => {
-          html += `<td>${row[cell] !== undefined ? row[cell] : ""}</td>`;
+					const value = row[cell] !== undefined ? row[cell] : "";
+          html += `<td data-copy="${value}">${value}</td>`;
         });
         html += "</tr>";
       });
 
       html += "</tbody></table></div>";
       container.innerHTML = html;
+
+			// Attach click listener to the table body cells for copying
+			const tableBody = container.querySelector("tbody");
+			tableBody?.addEventListener("click", async (e) => {
+				const target = (e.target as HTMLElement).closest("td");
+				if (!target) return;
+
+				const textToCopy = target.getAttribute("data-copy") || target.innerText;
+				if (!textToCopy.trim()) return;
+
+				try {
+					await navigator.clipboard.writeText(textToCopy);
+					showToast(`Copied: ${textToCopy} to clipboard!`);
+				} catch (err) {
+					console.error("Failed to copy text: ", err);
+					showToast("Failed to copy!");
+				}
+			});
     };
   </script>
 </BaseLayout>
