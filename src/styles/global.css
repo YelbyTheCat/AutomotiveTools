@@ -85,36 +85,37 @@ h1 {
 .styled-table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid #d1d5db; /* gray-300 */
+  border: 1px solid #d1d5db;
   text-align: center;
-  font-size: 0.875rem; /* text-sm */
+  font-size: 0.875rem;
 }
 
 /* Table header styles */
 .styled-table thead {
-  background-color: #f3f4f6; /* gray-100 */
+  background-color: #f3f4f6;
   border-bottom: 1px solid #d1d5db;
 }
 
 .styled-table th {
   border: 1px solid #d1d5db;
-  padding: 0.5rem 1rem; /* py-2 px-4 */
-  font-weight: 600; /* font-semibold */
-  color: #374151; /* gray-700 */
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  color: #374151;
 }
 
 /* Table body styles */
 .styled-table tbody tr {
-  border-bottom: 1px solid #e5e7eb; /* gray-200 */
+  border-bottom: 1px solid #e5e7eb;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
 .styled-table tbody tr:hover {
-  background-color: #f9fafb; /* hover:bg-gray-50 */
+  background-color: #f9fafb;
 }
 
 .styled-table td {
   border: 1px solid #d1d5db;
-  padding: 0.5rem; /* p-2 */
+  padding: 0.5rem;
   cursor: pointer;
   position: relative;
   transition: background-color 0.15s ease;
@@ -122,6 +123,13 @@ h1 {
 
 .styled-table td:hover {
   background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Strikethrough Row Style */
+.styled-table tr.strikethrough-row {
+  text-decoration: line-through;
+  color: #9ca3af;
+  background-color: #f3f4f6 !important;
 }
 
 /* Toast Notification Styles */
@@ -165,4 +173,9 @@ html.dark {
 
 .dark a {
   color: #ff9776;
+}
+
+.dark .styled-table tr.strikethrough-row {
+  color: #6b7280;
+  background-color: #1e1b4b !important;
 }
