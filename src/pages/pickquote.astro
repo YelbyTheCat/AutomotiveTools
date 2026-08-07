@@ -1,5 +1,5 @@
 ---
-import Toast from "../components/Toast.astro";
+// import Toast from "../components/Toast.astro";
 import BaseLayout from "../layouts/BaseLayout.astro";
 const pageTitle = "Pick Quote Reader";
 ---
@@ -89,7 +89,7 @@ const pageTitle = "Pick Quote Reader";
 
       rows.forEach((row, idx) => {
         html += "<tr>";
-        html += `<td>${idx + 1}</td>`;
+        html += `<td class="row-toggle" style="cursor: pointer; font-weight: bold;">${idx + 1}</td>`;
         columnNames.forEach((cell) => {
 					const value = row[cell] !== undefined ? row[cell] : "";
           html += `<td data-copy="${value}">${value}</td>`;
@@ -104,9 +104,17 @@ const pageTitle = "Pick Quote Reader";
 			const tableBody = container.querySelector("tbody");
 			tableBody?.addEventListener("click", async (e) => {
 				const target = (e.target as HTMLElement).closest("td");
+        const td = target?.closest("td");
 				if (!target) return;
 
-				const textToCopy = target.getAttribute("data-copy") || target.innerText;
+        const row = td?.closest("tr");
+        if (!row) return;
+
+        if (td?.classList.contains("row-toggle")) {
+          row.classList.toggle("strikethrough-row");
+        }
+
+				const textToCopy = td?.getAttribute("data-copy") || "";
 				if (!textToCopy.trim()) return;
 
 				try {
