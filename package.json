@@ -12,7 +12,8 @@
     "astro": "astro"
   },
   "dependencies": {
-    "astro": "^7.1.6",
+    "@astrojs/cloudflare": "^14.2.0",
+    "astro": "^7.2.0",
     "pdfjs-dist": "6.2.108",
     "preact": "10.29.8"
   }
