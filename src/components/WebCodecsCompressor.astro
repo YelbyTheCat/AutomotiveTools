@@ -4,11 +4,17 @@
 
 <div class="compressor-card">
   <h2>Hardware-Accelerated Video Compressor</h2>
-  <p class="subtitle">Powered by WebCodecs & Mediabunny (100% Client-Side & GPU Accelerated)</p>
+  <p class="subtitle">
+    Powered by WebCodecs & Mediabunny (100% Client-Side & GPU Accelerated)
+  </p>
 
   <div class="input-group">
     <label for="videoInput">Select Input Video:</label>
-    <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime" />
+    <input
+      type="file"
+      id="videoInput"
+      accept="video/mp4,video/webm,video/quicktime"
+    />
   </div>
 
   <div class="controls">
@@ -39,7 +45,11 @@
   <button id="compressBtn" disabled>Compress Video</button>
 
   <div id="status" class="status">Ready. Please select a video.</div>
-  <progress id="progressBar" value="0" max="100" style="width: 100%; display: none;"></progress>
+  <progress
+    id="progressBar"
+    value="0"
+    max="100"
+    style="width: 100%; display: none;"></progress>
 
   <div id="result" class="result" style="display: none;">
     <h3>Compressed Video Output:</h3>
@@ -50,26 +60,59 @@
 </div>
 
 <script>
-  import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+  import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 
-  const videoInput = document.getElementById('videoInput') as HTMLInputElement;
-  const compressBtn = document.getElementById('compressBtn') as HTMLButtonElement;
-  const targetHeightSelect = document.getElementById('targetHeight') as HTMLSelectElement;
-  const bitrateSelect = document.getElementById('bitrate') as HTMLSelectElement;
-  const codecSelect = document.getElementById('codec') as HTMLSelectElement;
-  const statusEl = document.getElementById('status') as HTMLDivElement;
-  const progressBar = document.getElementById('progressBar') as HTMLProgressElement;
-  const resultDiv = document.getElementById('result') as HTMLDivElement;
-  const outputVideo = document.getElementById('outputVideo') as HTMLVideoElement;
-  const downloadLink = document.getElementById('downloadLink') as HTMLAnchorElement;
+  const videoInput = document.getElementById("videoInput") as HTMLInputElement;
+  const compressBtn = document.getElementById("compressBtn") as HTMLButtonElement;
+  const targetHeightSelect = document.getElementById("targetHeight") as HTMLSelectElement;
+  const bitrateSelect = document.getElementById("bitrate") as HTMLSelectElement;
+  const codecSelect = document.getElementById("codec") as HTMLSelectElement;
+  const statusEl = document.getElementById("status") as HTMLDivElement;
+  const progressBar = document.getElementById("progressBar") as HTMLProgressElement;
+  const resultDiv = document.getElementById("result") as HTMLDivElement;
+  const outputVideo = document.getElementById("outputVideo") as HTMLVideoElement;
+  const downloadLink = document.getElementById("downloadLink") as HTMLAnchorElement;
 
   let selectedFile: File | null = null;
 
-  if (!('VideoEncoder' in window) || !('VideoDecoder' in window)) {
-    statusEl.textContent = 'WebCodecs API is not supported in this browser.';
+  if (!("VideoEncoder" in window) || !("VideoDecoder" in window)) {
+    statusEl.textContent = "WebCodecs API is not supported in this browser.";
   }
 
-  videoInput.addEventListener('change', () => {
+  // Standalone helper function to dynamically test and find a supported VideoEncoderConfig
+  async function getSupportedEncoderConfig(
+    requestedCodec: string,
+    targetWidth: number,
+    targetHeight: number,
+    targetBitrate: number
+  ): Promise<VideoEncoderConfig> {
+    const w = targetWidth - (targetWidth % 2);
+    const h = targetHeight - (targetHeight % 2);
+
+    const candidates: VideoEncoderConfig[] = [
+      { codec: requestedCodec, width: w, height: h, bitrate: targetBitrate, framerate: 30, hardwareAcceleration: "prefer-software" },
+      { codec: requestedCodec, width: w, height: h, bitrate: targetBitrate, framerate: 30, hardwareAcceleration: "no-preference" },
+      { codec: "avc1.42E01F", width: w, height: h, bitrate: targetBitrate, framerate: 30, hardwareAcceleration: "no-preference" },
+      { codec: "avc1.4d401f", width: w, height: h, bitrate: targetBitrate, framerate: 30, hardwareAcceleration: "prefer-software" },
+      { codec: "vp8", width: w, height: h, bitrate: targetBitrate, framerate: 30, hardwareAcceleration: "no-preference" },
+      { codec: "vp09.00.10.08", width: w, height: h, bitrate: targetBitrate, framerate: 30, hardwareAcceleration: "prefer-software" },
+    ];
+
+    for (const config of candidates) {
+      try {
+        const support = await VideoEncoder.isConfigSupported(config);
+        if (support.supported && support.config) {
+          return support.config;
+        }
+      } catch (e) {
+        // Try next candidate
+      }
+    }
+
+    throw new Error(`No working encoder configuration found for codec: ${requestedCodec}`);
+  }
+
+  videoInput.addEventListener("change", () => {
     if (videoInput.files && videoInput.files[0]) {
       selectedFile = videoInput.files[0];
       compressBtn.disabled = false;
@@ -78,20 +121,20 @@
     }
   });
 
-  compressBtn.addEventListener('click', async () => {
+  compressBtn.addEventListener("click", async () => {
     if (!selectedFile) return;
 
     compressBtn.disabled = true;
     videoInput.disabled = true;
-    progressBar.style.display = 'block';
+    progressBar.style.display = "block";
     progressBar.value = 0;
-    resultDiv.style.display = 'none';
+    resultDiv.style.display = "none";
 
     try {
-      statusEl.textContent = 'Initializing GPU encoder...';
+      statusEl.textContent = "Initializing GPU encoder...";
 
       const fileUrl = URL.createObjectURL(selectedFile);
-      const tempVideo = document.createElement('video');
+      const tempVideo = document.createElement("video");
       tempVideo.src = fileUrl;
       tempVideo.muted = true;
       await tempVideo.play();
@@ -110,57 +153,60 @@
       const targetBitrate = parseInt(bitrateSelect.value, 10);
       const codecString = codecSelect.value;
 
-      // 1. Initialize MP4 Muxer
+      // 1. Dynamically resolve a valid config supported by this browser/GPU
+      const config = await getSupportedEncoderConfig(
+        codecString,
+        targetWidth,
+        targetHeight,
+        targetBitrate
+      );
+
+      // Ensure config properties are defined for TypeScript
+      const finalWidth = config.width ?? targetWidth;
+      const finalHeight = config.height ?? targetHeight;
+      const finalCodec = config.codec ?? codecString;
+
+      // 2. Initialize MP4 Muxer with resolved codec settings
       const target = new ArrayBufferTarget();
       const muxer = new Muxer({
         target,
         video: {
-          codec: codecString.startsWith('avc1') ? 'avc' : codecString.startsWith('vp09') ? 'vp9' : 'av1',
-          width: targetWidth,
-          height: targetHeight,
+          codec: finalCodec.startsWith("avc1")
+            ? "avc"
+            : finalCodec.startsWith("vp09") || finalCodec === "vp8"
+              ? "vp9"
+              : "av1",
+          width: finalWidth,
+          height: finalHeight,
         },
-        fastStart: 'in-memory',
+        fastStart: "in-memory",
       });
 
-      // 2. Setup WebCodecs VideoEncoder
+      // 3. Setup WebCodecs VideoEncoder
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
           muxer.addVideoChunk(chunk, metadata);
         },
         error: (e) => {
-          console.error('Encoder error:', e);
+          console.error("Encoder error:", e);
           statusEl.textContent = `Encoding error: ${e.message}`;
         },
       });
 
-      const config = {
-        codec: codecString,
-        width: targetWidth,
-        height: targetHeight,
-        bitrate: targetBitrate,
-        framerate: 30,
-        hardwareAcceleration: 'prefer-hardware' as const,
-      };
-
-      const support = await VideoEncoder.isConfigSupported(config);
-      if (!support.supported) {
-        throw new Error(`Codec configuration not supported by hardware: ${codecString}`);
-      }
-
       encoder.configure(config);
 
-      // 3. Render and encode frames on local GPU canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d')!;
+      // 4. Render and encode frames on local GPU
+      const canvas = document.createElement("canvas");
+      canvas.width = finalWidth;
+      canvas.height = finalHeight;
+      const ctx = canvas.getContext("2d")!;
 
       tempVideo.currentTime = 0;
       const frameRate = 30;
       const frameDurationMicroseconds = 1_000_000 / frameRate;
       const totalFrames = Math.floor(duration * frameRate);
 
-      statusEl.textContent = 'Compressing video using GPU...';
+      statusEl.textContent = "Compressing video using GPU...";
 
       for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
         const timestamp = frameIndex * frameDurationMicroseconds;
@@ -168,13 +214,13 @@
 
         await new Promise((resolve) => {
           const onSeek = () => {
-            tempVideo.removeEventListener('seeked', onSeek);
+            tempVideo.removeEventListener("seeked", onSeek);
             resolve(true);
           };
-          tempVideo.addEventListener('seeked', onSeek);
+          tempVideo.addEventListener("seeked", onSeek);
         });
 
-        ctx.drawImage(tempVideo, 0, 0, targetWidth, targetHeight);
+        ctx.drawImage(tempVideo, 0, 0, finalWidth, finalHeight);
 
         const frame = new VideoFrame(canvas, {
           timestamp,
@@ -193,9 +239,9 @@
       await encoder.flush();
       encoder.close();
 
-      // 4. Finalize MP4 Muxer & Output Video
+      // 5. Finalize MP4 Muxer & Output Video
       muxer.finalize();
-      const compressedBlob = new Blob([target.buffer], { type: 'video/mp4' });
+      const compressedBlob = new Blob([target.buffer], { type: "video/mp4" });
       const outputUrl = URL.createObjectURL(compressedBlob);
 
       outputVideo.src = outputUrl;
@@ -205,7 +251,7 @@
       const newMB = (compressedBlob.size / (1024 * 1024)).toFixed(2);
       statusEl.textContent = `Done! Original: ${origMB}MB ➔ Compressed: ${newMB}MB`;
 
-      resultDiv.style.display = 'block';
+      resultDiv.style.display = "block";
       URL.revokeObjectURL(fileUrl);
     } catch (err: any) {
       console.error(err);
@@ -225,7 +271,10 @@
     border: 1px solid #e2e8f0;
     border-radius: 12px;
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    font-family: system-ui, -apple-system, sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      sans-serif;
     background: #ffffff;
   }
   .subtitle {
@@ -234,13 +283,16 @@
     margin-top: -0.5rem;
     margin-bottom: 1.5rem;
   }
-  .controls, .input-group {
+  .controls,
+  .input-group {
     margin-bottom: 1rem;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
-  select, input, button {
+  select,
+  input,
+  button {
     padding: 0.6rem;
     border-radius: 6px;
     border: 1px solid #cbd5e1;
