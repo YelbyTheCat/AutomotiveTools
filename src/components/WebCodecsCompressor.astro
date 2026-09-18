@@ -4,7 +4,7 @@
 
 <div class="compressor-card">
   <h2>Hardware-Accelerated Video Compressor</h2>
-  <p class="subtitle">Uses native browser WebCodecs API (GPU Accelerated & 100% Private)</p>
+  <p class="subtitle">Powered by WebCodecs & Mediabunny (100% Client-Side & GPU Accelerated)</p>
 
   <div class="input-group">
     <label for="videoInput">Select Input Video:</label>
@@ -45,7 +45,7 @@
     <h3>Compressed Video Output:</h3>
     <video id="outputVideo" controls width="100%"></video>
     <br />
-    <a id="downloadLink" download="compressed_video.mp4" class="btn">Download Compressed MP4</a>
+    <a id="downloadLink" download="compressed_video.mp4" class="btn">Download Compressed Video</a>
   </div>
 </div>
 
@@ -65,9 +65,8 @@
 
   let selectedFile: File | null = null;
 
-  // Check browser support
   if (!('VideoEncoder' in window) || !('VideoDecoder' in window)) {
-    statusEl.textContent = 'WebCodecs API is not supported in this browser. Please use Chrome, Edge, or Safari.';
+    statusEl.textContent = 'WebCodecs API is not supported in this browser.';
   }
 
   videoInput.addEventListener('change', () => {
@@ -102,20 +101,19 @@
       const origHeight = tempVideo.videoHeight;
       const duration = tempVideo.duration;
 
-      // Calculate target resolution while preserving aspect ratio
       const targetHeight = parseInt(targetHeightSelect.value, 10);
       const scaleFactor = targetHeight / origHeight;
       let targetWidth = Math.round(origWidth * scaleFactor);
-      
-      // Width and height must be even numbers for H.264 / hardware encoders
+
       if (targetWidth % 2 !== 0) targetWidth -= 1;
 
       const targetBitrate = parseInt(bitrateSelect.value, 10);
       const codecString = codecSelect.value;
 
-      // 1. Setup MP4 Muxer (to create output MP4 file container)
+      // 1. Initialize MP4 Muxer
+      const target = new ArrayBufferTarget();
       const muxer = new Muxer({
-        target: new ArrayBufferTarget(),
+        target,
         video: {
           codec: codecString.startsWith('avc1') ? 'avc' : codecString.startsWith('vp09') ? 'vp9' : 'av1',
           width: targetWidth,
@@ -125,7 +123,6 @@
       });
 
       // 2. Setup WebCodecs VideoEncoder
-      let encodedFramesCount = 0;
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
           muxer.addVideoChunk(chunk, metadata);
@@ -136,7 +133,6 @@
         },
       });
 
-      // Check hardware acceleration configuration support
       const config = {
         codec: codecString,
         width: targetWidth,
@@ -153,7 +149,7 @@
 
       encoder.configure(config);
 
-      // 3. Process Video Frames via Canvas offscreen renderer
+      // 3. Render and encode frames on local GPU canvas
       const canvas = document.createElement('canvas');
       canvas.width = targetWidth;
       canvas.height = targetHeight;
@@ -170,7 +166,6 @@
         const timestamp = frameIndex * frameDurationMicroseconds;
         tempVideo.currentTime = timestamp / 1_000_000;
 
-        // Wait for video element to seek frame
         await new Promise((resolve) => {
           const onSeek = () => {
             tempVideo.removeEventListener('seeked', onSeek);
@@ -179,33 +174,28 @@
           tempVideo.addEventListener('seeked', onSeek);
         });
 
-        // Draw resized frame to canvas
         ctx.drawImage(tempVideo, 0, 0, targetWidth, targetHeight);
 
-        // Create VideoFrame for hardware encoder
         const frame = new VideoFrame(canvas, {
           timestamp,
           duration: frameDurationMicroseconds,
         });
 
-        const isKeyFrame = frameIndex % (frameRate * 2) === 0; // Insert Keyframe every 2s
+        const isKeyFrame = frameIndex % (frameRate * 2) === 0;
         encoder.encode(frame, { keyFrame: isKeyFrame });
         frame.close();
 
-        // Update Progress UI
         const progress = Math.round(((frameIndex + 1) / totalFrames) * 100);
         progressBar.value = progress;
         statusEl.textContent = `Compressing frame ${frameIndex + 1}/${totalFrames} (${progress}%)`;
       }
 
-      // Flush remaining frames from GPU pipeline
       await encoder.flush();
       encoder.close();
 
-      // 4. Finalize Muxed Output File
+      // 4. Finalize MP4 Muxer & Output Video
       muxer.finalize();
-      const { buffer } = muxer.target as ArrayBufferTarget;
-      const compressedBlob = new Blob([buffer], { type: 'video/mp4' });
+      const compressedBlob = new Blob([target.buffer], { type: 'video/mp4' });
       const outputUrl = URL.createObjectURL(compressedBlob);
 
       outputVideo.src = outputUrl;
