@@ -1,0 +1,277 @@
+---
+// src/components/WebCodecsCompressor.astro
+---
+
+<div class="compressor-card">
+  <h2>Hardware-Accelerated Video Compressor</h2>
+  <p class="subtitle">Powered by WebCodecs & Mediabunny (100% Client-Side & GPU Accelerated)</p>
+
+  <div class="input-group">
+    <label for="videoInput">Select Input Video:</label>
+    <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime" />
+  </div>
+
+  <div class="controls">
+    <label for="targetHeight">Resolution (Height):</label>
+    <select id="targetHeight">
+      <option value="1080">1080p (Full HD)</option>
+      <option value="720" selected>720p (HD - Recommended)</option>
+      <option value="480">480p (SD)</option>
+      <option value="360">360p (Low Res)</option>
+    </select>
+
+    <label for="bitrate">Target Bitrate:</label>
+    <select id="bitrate">
+      <option value="4000000">4.0 Mbps (High Quality)</option>
+      <option value="2500000" selected>2.5 Mbps (Balanced)</option>
+      <option value="1000000">1.0 Mbps (Small File Size)</option>
+      <option value="500000">0.5 Mbps (Maximum Compression)</option>
+    </select>
+
+    <label for="codec">Video Codec:</label>
+    <select id="codec">
+      <option value="avc1.4d401f" selected>H.264 / AVC (Broad Compatibility)</option>
+      <option value="vp09.00.10.08">VP9 (High Efficiency)</option>
+      <option value="av01.0.04M.08">AV1 (Next-Gen Efficiency)</option>
+    </select>
+  </div>
+
+  <button id="compressBtn" disabled>Compress Video</button>
+
+  <div id="status" class="status">Ready. Please select a video.</div>
+  <progress id="progressBar" value="0" max="100" style="width: 100%; display: none;"></progress>
+
+  <div id="result" class="result" style="display: none;">
+    <h3>Compressed Video Output:</h3>
+    <video id="outputVideo" controls width="100%"></video>
+    <br />
+    <a id="downloadLink" download="compressed_video.mp4" class="btn">Download Compressed Video</a>
+  </div>
+</div>
+
+<script>
+  import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+
+  const videoInput = document.getElementById('videoInput') as HTMLInputElement;
+  const compressBtn = document.getElementById('compressBtn') as HTMLButtonElement;
+  const targetHeightSelect = document.getElementById('targetHeight') as HTMLSelectElement;
+  const bitrateSelect = document.getElementById('bitrate') as HTMLSelectElement;
+  const codecSelect = document.getElementById('codec') as HTMLSelectElement;
+  const statusEl = document.getElementById('status') as HTMLDivElement;
+  const progressBar = document.getElementById('progressBar') as HTMLProgressElement;
+  const resultDiv = document.getElementById('result') as HTMLDivElement;
+  const outputVideo = document.getElementById('outputVideo') as HTMLVideoElement;
+  const downloadLink = document.getElementById('downloadLink') as HTMLAnchorElement;
+
+  let selectedFile: File | null = null;
+
+  if (!('VideoEncoder' in window) || !('VideoDecoder' in window)) {
+    statusEl.textContent = 'WebCodecs API is not supported in this browser.';
+  }
+
+  videoInput.addEventListener('change', () => {
+    if (videoInput.files && videoInput.files[0]) {
+      selectedFile = videoInput.files[0];
+      compressBtn.disabled = false;
+      const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
+      statusEl.textContent = `Selected: ${selectedFile.name} (${sizeMB} MB)`;
+    }
+  });
+
+  compressBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    compressBtn.disabled = true;
+    videoInput.disabled = true;
+    progressBar.style.display = 'block';
+    progressBar.value = 0;
+    resultDiv.style.display = 'none';
+
+    try {
+      statusEl.textContent = 'Initializing GPU encoder...';
+
+      const fileUrl = URL.createObjectURL(selectedFile);
+      const tempVideo = document.createElement('video');
+      tempVideo.src = fileUrl;
+      tempVideo.muted = true;
+      await tempVideo.play();
+      tempVideo.pause();
+
+      const origWidth = tempVideo.videoWidth;
+      const origHeight = tempVideo.videoHeight;
+      const duration = tempVideo.duration;
+
+      const targetHeight = parseInt(targetHeightSelect.value, 10);
+      const scaleFactor = targetHeight / origHeight;
+      let targetWidth = Math.round(origWidth * scaleFactor);
+
+      if (targetWidth % 2 !== 0) targetWidth -= 1;
+
+      const targetBitrate = parseInt(bitrateSelect.value, 10);
+      const codecString = codecSelect.value;
+
+      // 1. Initialize MP4 Muxer
+      const target = new ArrayBufferTarget();
+      const muxer = new Muxer({
+        target,
+        video: {
+          codec: codecString.startsWith('avc1') ? 'avc' : codecString.startsWith('vp09') ? 'vp9' : 'av1',
+          width: targetWidth,
+          height: targetHeight,
+        },
+        fastStart: 'in-memory',
+      });
+
+      // 2. Setup WebCodecs VideoEncoder
+      const encoder = new VideoEncoder({
+        output: (chunk, metadata) => {
+          muxer.addVideoChunk(chunk, metadata);
+        },
+        error: (e) => {
+          console.error('Encoder error:', e);
+          statusEl.textContent = `Encoding error: ${e.message}`;
+        },
+      });
+
+      const config = {
+        codec: codecString,
+        width: targetWidth,
+        height: targetHeight,
+        bitrate: targetBitrate,
+        framerate: 30,
+        hardwareAcceleration: 'prefer-hardware' as const,
+      };
+
+      const support = await VideoEncoder.isConfigSupported(config);
+      if (!support.supported) {
+        throw new Error(`Codec configuration not supported by hardware: ${codecString}`);
+      }
+
+      encoder.configure(config);
+
+      // 3. Render and encode frames on local GPU canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = targetWidth;
+      canvas.height = targetHeight;
+      const ctx = canvas.getContext('2d')!;
+
+      tempVideo.currentTime = 0;
+      const frameRate = 30;
+      const frameDurationMicroseconds = 1_000_000 / frameRate;
+      const totalFrames = Math.floor(duration * frameRate);
+
+      statusEl.textContent = 'Compressing video using GPU...';
+
+      for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+        const timestamp = frameIndex * frameDurationMicroseconds;
+        tempVideo.currentTime = timestamp / 1_000_000;
+
+        await new Promise((resolve) => {
+          const onSeek = () => {
+            tempVideo.removeEventListener('seeked', onSeek);
+            resolve(true);
+          };
+          tempVideo.addEventListener('seeked', onSeek);
+        });
+
+        ctx.drawImage(tempVideo, 0, 0, targetWidth, targetHeight);
+
+        const frame = new VideoFrame(canvas, {
+          timestamp,
+          duration: frameDurationMicroseconds,
+        });
+
+        const isKeyFrame = frameIndex % (frameRate * 2) === 0;
+        encoder.encode(frame, { keyFrame: isKeyFrame });
+        frame.close();
+
+        const progress = Math.round(((frameIndex + 1) / totalFrames) * 100);
+        progressBar.value = progress;
+        statusEl.textContent = `Compressing frame ${frameIndex + 1}/${totalFrames} (${progress}%)`;
+      }
+
+      await encoder.flush();
+      encoder.close();
+
+      // 4. Finalize MP4 Muxer & Output Video
+      muxer.finalize();
+      const compressedBlob = new Blob([target.buffer], { type: 'video/mp4' });
+      const outputUrl = URL.createObjectURL(compressedBlob);
+
+      outputVideo.src = outputUrl;
+      downloadLink.href = outputUrl;
+
+      const origMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
+      const newMB = (compressedBlob.size / (1024 * 1024)).toFixed(2);
+      statusEl.textContent = `Done! Original: ${origMB}MB ➔ Compressed: ${newMB}MB`;
+
+      resultDiv.style.display = 'block';
+      URL.revokeObjectURL(fileUrl);
+    } catch (err: any) {
+      console.error(err);
+      statusEl.textContent = `Error: ${err.message || err}`;
+    } finally {
+      compressBtn.disabled = false;
+      videoInput.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .compressor-card {
+    max-width: 550px;
+    margin: 2rem auto;
+    padding: 1.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #ffffff;
+  }
+  .subtitle {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-top: -0.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .controls, .input-group {
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  select, input, button {
+    padding: 0.6rem;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+  }
+  button {
+    background-color: #2563eb;
+    color: white;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+  }
+  button:disabled {
+    background-color: #94a3b8;
+    cursor: not-allowed;
+  }
+  .status {
+    margin-top: 1rem;
+    font-weight: 500;
+    color: #334155;
+  }
+  .result {
+    margin-top: 1.5rem;
+  }
+  .btn {
+    display: inline-block;
+    margin-top: 0.75rem;
+    padding: 0.6rem 1.2rem;
+    background: #16a34a;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+</style>
