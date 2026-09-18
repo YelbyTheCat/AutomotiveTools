@@ -1,0 +1,11 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+const pageTitle = "Video Compressor";
+
+import VideoCompressor from "../components/VideoCompressor.astro";
+import WebCodecsCompressor from "../components/WebCodecsCompressor.astro";
+---
+<BaseLayout pageTitle={pageTitle}>
+  <!-- <VideoCompressor /> -->
+   <WebCodecsCompressor />
+</BaseLayout>
