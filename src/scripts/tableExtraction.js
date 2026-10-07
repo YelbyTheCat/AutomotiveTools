@@ -82,10 +82,21 @@ const processPDFData = async (data) => {
       const partDescription = lastSpaceIndex !== -1 ? middleText.substring(0, lastSpaceIndex) : middleText;
       const bin = lastSpaceIndex !== -1 ? middleText.substring(lastSpaceIndex + 1) : "";
 
+      const separatePartNumber = fullNumber => {
+        const splitNumber = fullNumber.split("-");
+        if (!(splitNumber.length - 1 === 2)) return fullNumber;
+
+        return {
+          prefix: splitNumber[0],
+          base: splitNumber[1],
+          suffix: splitNumber[2]
+        }
+      }
+
       return {
         ShipQty: Number(match[1]),
         BOQty: Number(match[2]),
-        PartNumber: match[3],
+        PartNumber: separatePartNumber(match[3]),
         PartDescription: partDescription,
         Bin: bin,
         List: parseFloat(match[5]).toFixed(2),
