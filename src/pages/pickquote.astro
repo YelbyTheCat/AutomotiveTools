@@ -3,128 +3,249 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 const pageTitle = "Pick Quote Reader";
 ---
+<style>
+  /* Container inside the single TD */
+  .ford-multi-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem;
+  }
 
+  /* Individual copyable sub-cells */
+  .copy-subcell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.25rem;
+    padding: 0.25rem 0.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1e293b;
+    background-color: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  }
+
+  /* Hover state */
+  .copy-subcell:hover {
+    background-color: #e2e8f0;
+    border-color: #94a3b8;
+    color: #0f172a;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.08);
+  }
+
+  /* Active / Click feedback */
+  .copy-subcell:active {
+    transform: translateY(0);
+    background-color: #cbd5e1;
+    box-shadow: none;
+  }
+
+  /* Empty state styling if a sub-part is blank */
+  .copy-subcell:empty::before {
+    content: "—";
+    color: #94a3b8;
+    font-weight: normal;
+  }
+
+  /* Visual dot separators between the sub-cells */
+  .ford-multi-cell .subcell-divider {
+    color: #94a3b8;
+    font-size: 0.75rem;
+    user-select: none;
+  }
+</style>
 <BaseLayout pageTitle={pageTitle}>
+  <!-- Ford Mode Toggle placed directly above the upload form -->
+  <div class="mb-4 flex items-center gap-2 select-none">
+    <label class="relative inline-flex items-center cursor-pointer">
+      <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+      <input type="checkbox" id="ford-mode-toggle" class="sr-only peer" />
+    </label>
+    <span class="text-sm font-medium text-gray-900">Ford Mode</span>
+  </div>
+
   <form id="upload-form" class="mb-6">
     <input type="file" id="pdf-file" accept=".pdf" class="mb-2 block" />
   </form>
 
   <div id="result-container"></div>
 
-  <!-- <Toast text="Copied to clipboard!"/> -->
-	 <div id="toast">
-    Copied to clipboard!
-  </div>
+  <div id="toast">Copied to clipboard!</div>
 
   <script>
-		import { extractQuoteFromPDF } from "../scripts/tableExtraction";
+  import { extractQuoteFromPDF } from "../scripts/tableExtraction";
 
-    const form = document.getElementById("upload-form");
-    form?.addEventListener("change", async (e) => {
-      e.preventDefault();
-      const fileInput = document.getElementById("pdf-file") as HTMLInputElement;
-      if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+  let isFordMode = false;
+  let currentTableData: any[] = [];
 
-      const formData = new FormData();
-      formData.append("pdf", fileInput.files[0]);
+  const form = document.getElementById("upload-form");
+  const fordToggle = document.getElementById("ford-mode-toggle") as HTMLInputElement;
 
-      try {
-        const pdfTables = await extractQuoteFromPDF(formData);
-        renderTable(pdfTables);
-      } catch (err) {
-        console.error("Parsing failed:", err);
-        alert("An error occurred while parsing the PDF.");
-      }
+  fordToggle?.addEventListener("change", (e) => {
+    isFordMode = (e.target as HTMLInputElement).checked;
+    if (currentTableData.length > 0) {
+      renderTable(currentTableData);
+    }
+  });
+
+  form?.addEventListener("change", async (e) => {
+    if (e.target === fordToggle) return;
+    
+    e.preventDefault();
+    const fileInput = document.getElementById("pdf-file") as HTMLInputElement;
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) return;
+
+    const formData = new FormData();
+    formData.append("pdf", fileInput.files[0]);
+
+    try {
+      currentTableData = await extractQuoteFromPDF(formData);
+      renderTable(currentTableData);
+    } catch (err) {
+      console.error("Parsing failed:", err);
+      alert("An error occurred while parsing the PDF.");
+    }
+  });
+
+  const showToast = (message = "Copied to clipboard!") => {
+    const toast = document.getElementById("toast");
+    if (!toast) return;
+
+    toast.textContent = message;
+    toast.classList.add("show");
+
+    if ((window as any).toastTimeout) {
+      clearTimeout((window as any).toastTimeout);
+    }
+
+    (window as any).toastTimeout = setTimeout(() => {
+      toast.classList.remove("show");
+    }, 2000);
+  };
+
+  const formatStandardPartNumber = (partObj: Record<string, any>): string => {
+    const prefix = partObj.prefix ?? partObj.part1 ?? "";
+    const base = partObj.base ?? partObj.part2 ?? "";
+    const suffix = partObj.suffix ?? partObj.part3 ?? "";
+
+    return [prefix, base, suffix]
+      .map((val) => String(val).trim())
+      .filter((val) => val.length > 0)
+      .join("-");
+  };
+
+  const getFordParts = (partObj: Record<string, any>): [string, string, string] => {
+    const keys = Object.keys(partObj);
+    const prefix = String(partObj.prefix ?? partObj.part1 ?? partObj[keys[0]] ?? "").trim();
+    const base = String(partObj.base ?? partObj.part2 ?? partObj[keys[1]] ?? "").trim();
+    const suffix = String(partObj.suffix ?? partObj.part3 ?? partObj[keys[2]] ?? "").trim();
+
+    return [prefix, base, suffix];
+  };
+
+  const renderTable = (rows: any[]) => {
+    const container = document.getElementById("result-container");
+    if (!container) return;
+
+    let html = '<div class="table-responsive-wrapper"><table class="styled-table">';
+    const columnNames = [
+      "ShipQty",
+      "BOQty",
+      "PartNumber",
+      "PartDescription",
+      "Bin",
+      "List",
+      "Net",
+      "Amount",
+    ];
+    const columnNameHeaders = [
+      "#",
+      "Ship Qty",
+      "BO Qty",
+      "Part Number",
+      "Part Description",
+      "Bin",
+      "List",
+      "Net",
+      "Amount",
+    ];
+
+    html += "<thead><tr>";
+    columnNameHeaders.forEach((name) => {
+      html += `<th>${name}</th>`;
+    });
+    html += "</tr></thead><tbody>";
+
+    rows.forEach((row, idx) => {
+      html += "<tr>";
+      html += `<td class="row-toggle" style="cursor: pointer; font-weight: bold;">${idx + 1}</td>`;
+
+      columnNames.forEach((cellKey) => {
+        const rawValue = row[cellKey] !== undefined ? row[cellKey] : "";
+        const isPartNumber = cellKey === "PartNumber";
+        const isObject = typeof rawValue === "object" && rawValue !== null;
+
+        if (isPartNumber && isObject) {
+          if (isFordMode) {
+            const [prefix, base, suffix] = getFordParts(rawValue);
+
+            html += `<td class="ford-multi-cell">
+              <span class="copy-subcell" data-copy="${prefix}">${prefix}</span>
+              <span class="subcell-divider">•</span>
+              <span class="copy-subcell" data-copy="${base}">${base}</span>
+              <span class="subcell-divider">•</span>
+              <span class="copy-subcell" data-copy="${suffix}">${suffix}</span>
+            </td>`;
+          } else {
+            const formattedPart = formatStandardPartNumber(rawValue);
+            html += `<td data-copy="${formattedPart}">${formattedPart}</td>`;
+          }
+        } else {
+          const stringVal = isObject ? JSON.stringify(rawValue) : rawValue;
+          html += `<td data-copy="${stringVal}">${stringVal}</td>`;
+        }
+      });
+
+      html += "</tr>";
     });
 
-		const showToast = (message = "Coppied to clipboard!") => {
-			const toast = document.getElementById("toast");
-			if (!toast) return;
+    html += "</tbody></table></div>";
+    container.innerHTML = html;
 
-			toast.textContent = message;
-			toast.classList.add("show");
+    const tableBody = container.querySelector("tbody");
+    tableBody?.addEventListener("click", async (e) => {
+      const target = e.target as HTMLElement;
+      if (!target) return;
 
-			if ((window as any).toastTimeout) {
-				clearTimeout((window as any).toastTimeout);
-			}
+      const row = target.closest("tr");
+      if (!row) return;
 
-			(window as any).toastTimeout = setTimeout(() => {
-				toast.classList.remove("show");
-			}, 2000);
-		}
+      if (target.classList.contains("row-toggle")) {
+        row.classList.toggle("strikethrough-row");
+        return;
+      }
 
-    const renderTable = (rows: any[]) => {
-      const container = document.getElementById("result-container");
-      if (!container) return;
+      const copyTarget = target.closest("[data-copy]") as HTMLElement;
+      const textToCopy = copyTarget?.getAttribute("data-copy") || "";
 
-      let html =
-        '<div class="table-responsive-wrapper"><table class="styled-table">';
-      const columnNames = [
-        "ShipQty",
-        "BOQty",
-        "PartNumber",
-        "PartDescription",
-        "Bin",
-        "List",
-        "Net",
-        "Amount",
-      ];
-      const columnNameHeaders = [
-        "#",
-        "Ship Qty",
-        "BO Qty",
-        "Part Number",
-        "Part Description",
-        "Bin",
-        "List",
-        "Net",
-        "Amount",
-      ];
+      if (!textToCopy.trim()) return;
 
-      html += "<thead><tr>";
-      columnNameHeaders.forEach((name) => {
-        html += `<th>${name}</th>`;
-      });
-      html += "</tr></thead><tbody>";
-
-      rows.forEach((row, idx) => {
-        html += "<tr>";
-        html += `<td class="row-toggle" style="cursor: pointer; font-weight: bold;">${idx + 1}</td>`;
-        columnNames.forEach((cell) => {
-					const value = row[cell] !== undefined ? row[cell] : "";
-          html += `<td data-copy="${value}">${value}</td>`;
-        });
-        html += "</tr>";
-      });
-
-      html += "</tbody></table></div>";
-      container.innerHTML = html;
-
-			// Attach click listener to the table body cells for copying
-			const tableBody = container.querySelector("tbody");
-			tableBody?.addEventListener("click", async (e) => {
-				const target = (e.target as HTMLElement).closest("td");
-        const td = target?.closest("td");
-				if (!target) return;
-
-        const row = td?.closest("tr");
-        if (!row) return;
-
-        if (td?.classList.contains("row-toggle")) {
-          row.classList.toggle("strikethrough-row");
-        }
-
-				const textToCopy = td?.getAttribute("data-copy") || "";
-				if (!textToCopy.trim()) return;
-
-				try {
-					await navigator.clipboard.writeText(textToCopy);
-					showToast(`Copied: ${textToCopy} to clipboard!`);
-				} catch (err) {
-					console.error("Failed to copy text: ", err);
-					showToast("Failed to copy!");
-				}
-			});
-    };
-  </script>
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        showToast(`Copied: ${textToCopy} to clipboard!`);
+      } catch (err) {
+        console.error("Failed to copy text: ", err);
+        showToast("Failed to copy!");
+      }
+    });
+  };
+</script>
 </BaseLayout>
