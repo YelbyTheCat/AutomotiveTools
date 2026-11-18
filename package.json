@@ -12,10 +12,12 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^14.2.0",
+    "@astrojs/cloudflare": "^14.4.8",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
-    "astro": "^7.2.0",
+    "astro": "^7.4.12",
+    "heic2any": "0.0.4",
+    "jszip": "3.10.2",
     "mediabunny": "^1.58.0",
     "mp4-muxer": "^5.2.2",
     "pdfjs-dist": "6.2.108",

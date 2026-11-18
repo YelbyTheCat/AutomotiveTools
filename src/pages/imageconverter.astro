@@ -1,0 +1,674 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+const pageTitle = "Image Converter";
+---
+
+<BaseLayout pageTitle={pageTitle}>
+  <section class="converter-container">
+
+    <!-- RO Prefix Input -->
+    <div class="input-group">
+      <label for="ro-input">RO (Filename Prefix)</label>
+      <input 
+        type="text" 
+        id="ro-input" 
+        placeholder="e.g., RO-12345" 
+        autocomplete="off"
+      />
+    </div>
+
+    <!-- Multiple File Upload -->
+    <div class="input-group">
+      <label for="image-upload" class="drop-zone" id="drop-zone">
+        <span>Click to select images or drag & drop here</span>
+        <small>Supports PNG, WebP, GIF, BMP, SVG, AVIF, HEIC, etc.</small>
+        <input 
+          type="file" 
+          id="image-upload" 
+          accept="image/*,.heic,.heif" 
+          multiple 
+        />
+      </label>
+    </div>
+
+    <!-- Uploaded Staging Queue / Preview Grid -->
+    <div id="staging-section" class="staging-section" hidden>
+      <h3>Selected Images (<span id="file-count">0</span>)</h3>
+      <div id="staging-grid" class="staging-grid"></div>
+    </div>
+
+    <!-- Action Controls -->
+    <div class="controls">
+      <button id="convert-btn" disabled>Convert to JPG</button>
+      <button id="download-all-btn" class="secondary" hidden>Download All (.ZIP)</button>
+    </div>
+
+    <!-- Progress Bar -->
+    <div id="progress-wrapper" class="progress-wrapper" hidden>
+      <div class="progress-info">
+        <span id="progress-status">Converting...</span>
+        <span id="progress-percent">0%</span>
+      </div>
+      <div class="progress-track">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </div>
+
+    <!-- Converted Output List -->
+    <ul id="results-list" class="results-list"></ul>
+  </section>
+
+  <!-- Lightbox Modal for Image Zoom -->
+  <div id="lightbox" class="lightbox" hidden>
+    <div class="lightbox-content">
+      <button id="lightbox-close" class="lightbox-close">&times;</button>
+      <img id="lightbox-img" src="" alt="Enlarged view" />
+    </div>
+  </div>
+</BaseLayout>
+
+<script>
+  import JSZip from 'jszip';
+  import heic2any from 'heic2any';
+
+  const fileInput = document.getElementById('image-upload') as HTMLInputElement;
+  const dropZone = document.getElementById('drop-zone') as HTMLLabelElement;
+  const roInput = document.getElementById('ro-input') as HTMLInputElement;
+  const convertBtn = document.getElementById('convert-btn') as HTMLButtonElement;
+  const downloadAllBtn = document.getElementById('download-all-btn') as HTMLButtonElement;
+  const progressWrapper = document.getElementById('progress-wrapper') as HTMLDivElement;
+  const progressStatus = document.getElementById('progress-status') as HTMLSpanElement;
+  const progressPercent = document.getElementById('progress-percent') as HTMLSpanElement;
+  const progressFill = document.getElementById('progress-fill') as HTMLDivElement;
+  const resultsList = document.getElementById('results-list') as HTMLUListElement;
+  const stagingSection = document.getElementById('staging-section') as HTMLDivElement;
+  const stagingGrid = document.getElementById('staging-grid') as HTMLDivElement;
+  const fileCountSpan = document.getElementById('file-count') as HTMLSpanElement;
+
+  const lightbox = document.getElementById('lightbox') as HTMLDivElement;
+  const lightboxImg = document.getElementById('lightbox-img') as HTMLImageElement;
+  const lightboxClose = document.getElementById('lightbox-close') as HTMLButtonElement;
+
+  interface StagedFile {
+    id: string;
+    file: File;
+    customBaseName: string;
+    previewUrl: string;
+  }
+
+  interface ConvertedFile {
+    name: string;
+    blob: Blob;
+    url: string;
+  }
+
+  let stagedFiles: StagedFile[] = [];
+  let convertedFiles: ConvertedFile[] = [];
+
+  function generateId() {
+    return Math.random().toString(36).substring(2, 9);
+  }
+
+  function addFiles(files: FileList | File[]) {
+    Array.from(files).forEach((file) => {
+      const cleanName = file.name.replace(/\.[^/.]+$/, '');
+      stagedFiles.push({
+        id: generateId(),
+        file: file,
+        customBaseName: cleanName,
+        previewUrl: URL.createObjectURL(file)
+      });
+    });
+    renderStagingQueue();
+  }
+
+  function renderStagingQueue() {
+    stagingGrid.innerHTML = '';
+    fileCountSpan.textContent = stagedFiles.length.toString();
+
+    if (stagedFiles.length > 0) {
+      stagingSection.hidden = false;
+      convertBtn.disabled = false;
+      convertBtn.textContent = `Convert ${stagedFiles.length} Image(s) to JPG`;
+    } else {
+      stagingSection.hidden = true;
+      convertBtn.disabled = true;
+      convertBtn.textContent = 'Convert to JPG';
+      fileInput.value = '';
+    }
+
+    stagedFiles.forEach((item) => {
+      const card = document.createElement('div');
+      card.className = 'staging-card';
+      card.innerHTML = `
+        <div class="thumb-container" data-url="${item.previewUrl}">
+          <img 
+            src="${item.previewUrl}" 
+            alt="Preview" 
+            style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; display: block; margin: auto;"
+          />
+          <div class="zoom-hint">🔍 Enlarge</div>
+        </div>
+        <div class="card-details">
+          <input 
+            type="text" 
+            class="filename-edit" 
+            value="${item.customBaseName}" 
+            data-id="${item.id}"
+            placeholder="Base name"
+          />
+          <button type="button" class="remove-btn" data-id="${item.id}" title="Remove image">&times;</button>
+        </div>
+      `;
+      stagingGrid.appendChild(card);
+    });
+
+    document.querySelectorAll('.filename-edit').forEach((input) => {
+      input.addEventListener('input', (e) => {
+        const target = e.target as HTMLInputElement;
+        const id = target.dataset.id;
+        const found = stagedFiles.find(f => f.id === id);
+        if (found) {
+          found.customBaseName = target.value;
+        }
+      });
+    });
+
+    document.querySelectorAll('.remove-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        const target = e.target as HTMLButtonElement;
+        const id = target.dataset.id;
+        const found = stagedFiles.find(f => f.id === id);
+        if (found) {
+          URL.revokeObjectURL(found.previewUrl);
+        }
+        stagedFiles = stagedFiles.filter(f => f.id !== id);
+        renderStagingQueue();
+      });
+    });
+
+    document.querySelectorAll('.thumb-container').forEach((container) => {
+      container.addEventListener('click', () => {
+        const url = (container as HTMLElement).dataset.url;
+        if (url) {
+          lightboxImg.src = url;
+          lightbox.hidden = false;
+        }
+      });
+    });
+  }
+
+  lightboxClose.addEventListener('click', () => { lightbox.hidden = true; });
+  lightbox.addEventListener('click', (e) => {
+    if (e.target === lightbox) lightbox.hidden = true;
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const target = e.target as HTMLInputElement;
+    if (target.files && target.files.length > 0) {
+      addFiles(target.files);
+      target.value = '';
+    }
+  });
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files);
+    }
+  });
+
+  async function convertImageToJpg(file: File, quality = 0.9): Promise<Blob> {
+    let processableBlob: Blob = file;
+
+    const isHeic = file.name.toLowerCase().endsWith('.heic') || 
+                   file.name.toLowerCase().endsWith('.heif') || 
+                   file.type === 'image/heic' || 
+                   file.type === 'image/heif';
+
+    if (isHeic) {
+      const converted = await heic2any({
+        blob: file,
+        toType: 'image/jpeg',
+        quality
+      });
+      processableBlob = Array.isArray(converted) ? converted[0] : converted;
+    }
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(processableBlob);
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          URL.revokeObjectURL(objectUrl);
+          return reject(new Error('Canvas context unavailable'));
+        }
+
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+
+        canvas.toBlob(
+          (blob) => {
+            URL.revokeObjectURL(objectUrl);
+            if (blob) resolve(blob);
+            else reject(new Error(`Failed to convert ${file.name}`));
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error(`Unsupported or corrupt image: ${file.name}`));
+      };
+
+      img.src = objectUrl;
+    });
+  }
+
+  convertBtn.addEventListener('click', async () => {
+    if (stagedFiles.length === 0) return;
+
+    convertedFiles.forEach((f) => URL.revokeObjectURL(f.url));
+    convertedFiles = [];
+    resultsList.innerHTML = '';
+    downloadAllBtn.hidden = true;
+    convertBtn.disabled = true;
+
+    progressWrapper.hidden = false;
+    progressFill.style.width = '0%';
+    progressPercent.textContent = '0%';
+
+    const rawRoPrefix = roInput.value.trim();
+    // Replace multiple spaces with a single underscore in the RO prefix too
+    const roPrefix = rawRoPrefix ? rawRoPrefix.replace(/\s+/g, '_') : '';
+    const total = stagedFiles.length;
+
+    for (let i = 0; i < total; i++) {
+      const staged = stagedFiles[i];
+      progressStatus.textContent = `Converting (${i + 1}/${total}): ${staged.file.name}`;
+
+      try {
+        const jpgBlob = await convertImageToJpg(staged.file, 0.92);
+        
+        // Sanitize custom base name: replace any sequence of spaces with a single '_'
+        const rawBase = staged.customBaseName.trim() || 'image';
+        const base = rawBase.replace(/\s+/g, '_');
+
+        const newFileName = roPrefix ? `${roPrefix}_${base}.jpg` : `${base}.jpg`;
+        const downloadUrl = URL.createObjectURL(jpgBlob);
+
+        convertedFiles.push({
+          name: newFileName,
+          blob: jpgBlob,
+          url: downloadUrl
+        });
+
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <span class="file-name">${newFileName}</span>
+          <a href="${downloadUrl}" download="${newFileName}" class="download-link">Download</a>
+        `;
+        resultsList.appendChild(li);
+      } catch (err) {
+        const li = document.createElement('li');
+        li.className = 'error-item';
+        li.textContent = `Error (${staged.file.name}): ${(err as Error).message}`;
+        resultsList.appendChild(li);
+      }
+
+      const percent = Math.round(((i + 1) / total) * 100);
+      progressFill.style.width = `${percent}%`;
+      progressPercent.textContent = `${percent}%`;
+    }
+
+    progressStatus.textContent = 'Conversion Complete!';
+    convertBtn.disabled = false;
+
+    if (convertedFiles.length > 0) {
+      downloadAllBtn.hidden = false;
+    }
+  });
+
+  downloadAllBtn.addEventListener('click', async () => {
+    if (convertedFiles.length === 0) return;
+
+    downloadAllBtn.disabled = true;
+    downloadAllBtn.textContent = 'Zipping files...';
+
+    const zip = new JSZip();
+    convertedFiles.forEach((file) => {
+      zip.file(file.name, file.blob);
+    });
+
+    const zipBlob = await zip.generateAsync({ type: 'blob' });
+    const zipUrl = URL.createObjectURL(zipBlob);
+    
+    const rawRoPrefix = roInput.value.trim();
+    const roPrefix = rawRoPrefix ? rawRoPrefix.replace(/\s+/g, '_') : '';
+    const zipName = roPrefix ? `${roPrefix}_converted_images.zip` : 'converted_images.zip';
+
+    const a = document.createElement('a');
+    a.href = zipUrl;
+    a.download = zipName;
+    a.click();
+
+    URL.revokeObjectURL(zipUrl);
+    downloadAllBtn.disabled = false;
+    downloadAllBtn.textContent = 'Download All (.ZIP)';
+  });
+</script>
+
+<style>
+  .converter-container {
+    max-width: 680px;
+    margin: 2rem auto;
+    padding: 1.5rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+
+  .input-group {
+    margin-bottom: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  label {
+    font-weight: 600;
+    font-size: 0.95rem;
+  }
+
+  input[type="text"] {
+    padding: 0.65rem 0.85rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 1rem;
+  }
+
+  .drop-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    border: 2px dashed #94a3b8;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.2s, border-color 0.2s;
+  }
+
+  .drop-zone:hover,
+  .drop-zone.dragover {
+    background-color: #f8fafc;
+    border-color: #3b82f6;
+  }
+
+  .drop-zone small {
+    color: #64748b;
+    font-weight: 400;
+    margin-top: 0.25rem;
+  }
+
+  .drop-zone input[type="file"] {
+    display: none;
+  }
+
+  .staging-section {
+    margin-bottom: 1.25rem;
+  }
+
+  .staging-section h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: #334155;
+  }
+
+  .staging-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.75rem;
+    max-height: 380px;
+    overflow-y: auto;
+    padding: 0.25rem;
+    border: 1px solid #f1f5f9;
+    background: #f8fafc;
+    border-radius: 8px;
+  }
+
+  .staging-card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  }
+
+  .thumb-container {
+    position: relative;
+    width: 100%;
+    height: 70px;
+    background: #1e293b;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+
+  .thumb-container:hover img {
+    opacity: 1;
+  }
+
+  .zoom-hint {
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    right: 2px;
+    font-size: 0.6rem;
+    background: rgba(0, 0, 0, 0.75);
+    color: white;
+    text-align: center;
+    padding: 1px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+
+  .thumb-container:hover .zoom-hint {
+    opacity: 1;
+  }
+
+  .card-details {
+    display: flex;
+    gap: 0.3rem;
+    align-items: center;
+  }
+
+  .filename-edit {
+    flex: 1;
+    padding: 0.25rem 0.4rem;
+    font-size: 0.8rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    min-width: 0;
+  }
+
+  .remove-btn {
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .remove-btn:hover {
+    background: #dc2626;
+  }
+
+  .controls {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.25rem;
+  }
+
+  button {
+    padding: 0.75rem 1.25rem;
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+
+  button:disabled {
+    background-color: #94a3b8;
+    cursor: not-allowed;
+  }
+
+  button.secondary {
+    background-color: #059669;
+  }
+
+  .progress-wrapper {
+    margin-bottom: 1.5rem;
+  }
+
+  .progress-info {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    margin-bottom: 0.35rem;
+    color: #334155;
+  }
+
+  .progress-track {
+    width: 100%;
+    height: 10px;
+    background-color: #e2e8f0;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background-color: #2563eb;
+    transition: width 0.2s ease;
+  }
+
+  .results-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .results-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.65rem 0.85rem;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+
+  .results-list li.error-item {
+    color: #dc2626;
+    background-color: #fef2f2;
+    border-color: #fecaca;
+  }
+
+  .download-link {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .download-link:hover {
+    text-decoration: underline;
+  }
+
+  .lightbox {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .lightbox[hidden] {
+    display: none;
+  }
+
+  .lightbox-content {
+    position: relative;
+    max-width: 90%;
+    max-height: 90%;
+  }
+
+  .lightbox-content img {
+    max-width: 100%;
+    max-height: 85vh;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    display: block;
+    margin: auto;
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: -40px;
+    right: 0;
+    background: none;
+    border: none;
+    color: white;
+    font-size: 2rem;
+    cursor: pointer;
+  }
+</style>
