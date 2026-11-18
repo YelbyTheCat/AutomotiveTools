@@ -85,6 +85,7 @@ const pageTitle = "Pick Quote Reader";
 
   let isFordMode = false;
   let currentTableData: any[] = [];
+  let total = 0;
 
   const form = document.getElementById("upload-form");
   const fordToggle = document.getElementById("ford-mode-toggle") as HTMLInputElement;
@@ -108,12 +109,24 @@ const pageTitle = "Pick Quote Reader";
 
     try {
       currentTableData = await extractQuoteFromPDF(formData);
+      const sum = getSumFromTable("Amount", currentTableData);
+      total = sum;
       renderTable(currentTableData);
     } catch (err) {
       console.error("Parsing failed:", err);
       alert("An error occurred while parsing the PDF.");
     }
   });
+
+  const getSumFromTable = (propertyName: string, table: any[]) => {
+    let sum = 0;
+    for (let i = 0; i < table.length; i++) {
+      const currentRow = table[i];
+      const amount = Number(currentRow[propertyName]);
+      sum += amount;
+    }
+    return sum;
+  }
 
   const showToast = (message = "Copied to clipboard!") => {
     const toast = document.getElementById("toast");
@@ -216,6 +229,8 @@ const pageTitle = "Pick Quote Reader";
 
       html += "</tr>";
     });
+
+    html += `<tr>Sum: $${total.toFixed(2)} | Tax: $${(total * 0.06).toFixed(2)} | Total: $${(total * 1.06).toFixed(2)}</tr>`;
 
     html += "</tbody></table></div>";
     container.innerHTML = html;
